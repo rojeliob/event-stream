@@ -8,14 +8,14 @@
         <video
           ref="localVideo"
           class="w-1/2 border rounded"
-          autoplay
           playsinline
+          autoplay
           muted
         ></video>
         <video
           ref="remoteVideo"
-          class="w-1/2 border rounded"
           autoplay
+          class="w-1/2 border rounded"
           playsinline
         ></video>
       </div>
@@ -68,15 +68,27 @@
       </div>
     </div>
   </div>
+  <div class="flex items-center justify-center min-h-screen space-x-3">
+    <Knob />
+    <!-- </div>
+  <div class="flex items-center justify-center min-h-screen"> -->
+    <RangeFader @input="handleInput" />
+  </div>
 </template>
 
 <script>
 import axios from "axios";
 import Peer from "simple-peer";
 import Echo from "laravel-echo";
+import Knob from "./Knob.vue";
+import RangeFader from "./RangeFader.vue";
 
 export default {
   name: "VideoCall",
+  components: {
+    Knob,
+    RangeFader,
+  },
   data() {
     return {
       peer: null,
@@ -251,6 +263,9 @@ export default {
           track.applyConstraints({ volume: this.volume / 100 });
         });
       }
+    },
+    handleInput(value) {
+      console.log("Range value:", value);
     },
   },
 };

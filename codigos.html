@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Publisher</title>
+</head>
+
+<body style="background-color: black; color: white;">
+    <h1>Publisher</h1>
+    <div id="status">Select an audio source:</div>
+    <div class="audio-channel">
+        <select id="audioSource1"></select>
+        <button id="startButton">Start</button>
+        <button id="stopButton">Stop</button>
+    </div>
+    <script>
+        let audioStream;
+
+        window.onload = function () {
+            const status = document.getElementById('status');
+            const audioSelect = document.getElementById('audioSource1');
+            const startButton = document.getElementById('startButton');
+            const stopButton = document.getElementById('stopButton');
+
+            // Función para obtener la lista de dispositivos de audio disponibles
+            function getAudioSources() {
+                navigator.mediaDevices.enumerateDevices()
+                    .then(devices => {
+                        devices.forEach(device => {
+                            if (device.kind === 'audioinput') {
+                                const option = document.createElement('option');
+                                option.text = device.label || `Audio ${audioSelect.length + 1}`;
+                                option.value = device.deviceId;
+                                audioSelect.add(option);
+                            }
+                        });
+                    })
+                    .catch(err => {
+                        console.error('Error enumerando dispositivos:', err);
+                        status.textContent = 'Error enumerando dispositivos. Ver la consola para detalles.';
+                    });
+            }
+
+            // Función para iniciar la transmisión de audio
+            async function startAudio() {
+                const audioSource = audioSelect.value;
+                const constraints = {
+                    audio: {
+                        deviceId: audioSource ? { exact: audioSource } : undefined
+                    }
+                };
+                try {
+                    audioStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    const audioTracks = audioStream.getAudioTracks();
+                    status.textContent = `Transmitting audio from: ${audioTracks[0].label}`;
+                    startButton.disabled = true;
+                    stopButton.disabled = false;
+                } catch (err) {
+                    console.error('Error accediendo al dispositivo de audio:', err);
+                    status.textContent = 'Error accediendo al dispositivo de audio. Ver la consola para detalles.';
+                }
+            }
+
+            // Función para detener la transmisión de audio
+            function stopAudio() {
+                if (audioStream) {
+                    audioStream.getTracks().forEach(track => track.stop());
+                    status.textContent = 'Audio transmission stopped.';
+                    startButton.disabled = false;
+                    stopButton.disabled = true;
+                }
+            }
+
+            startButton.addEventListener('click', startAudio);
+            stopButton.addEventListener('click', stopAudio);
+
+            getAudioSources();
+        };
+    </script>
+</body>
+
+</html>
