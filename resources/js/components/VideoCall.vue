@@ -19,7 +19,7 @@
           playsinline
         ></video>
       </div>
-      <div class="controls flex flex-col space-y-2">
+      <div class="controls flex flex-col w-1/2 space-y-2 text-white">
         <div class="flex space-x-2">
           <button
             @click="toggleMuteMic"
@@ -34,15 +34,15 @@
             {{ isCameraOff ? "Turn Camera On" : "Turn Camera Off" }}
           </button>
         </div>
-        <div class="flex space-x-2 items-center">
-          <label for="audioInputSelect" class="w-1/3"
+        <div class="flex space-x-2">
+          <label for="audioInputSelect" class="w-1/5"
             >Select Audio Input:</label
           >
           <select
             id="audioInputSelect"
             v-model="selectedAudioInput"
-            @change="changeAudioInput"
-            class="px-4 py-2 border rounded"
+            @change="changeMediaInput"
+            class="px-4 py-2 border rounded bg-black"
           >
             <option
               v-for="device in audioInputDevices"
@@ -53,8 +53,27 @@
             </option>
           </select>
         </div>
+        <div class="flex space-x-2">
+          <label for="videoInputSelect" class="w-1/5"
+            >Select Video Input:</label
+          >
+          <select
+            id="videoInputSelect"
+            v-model="selectedVideoInput"
+            @change="changeMediaInput"
+            class="px-4 py-2 border rounded bg-black"
+          >
+            <option
+              v-for="device in videoInputDevices"
+              :key="device.deviceId"
+              :value="device.deviceId"
+            >
+              {{ device.label }}
+            </option>
+          </select>
+        </div>
         <div class="flex space-x-2 items-center">
-          <label for="volumeControl" class="w-1/3">Volume Control:</label>
+          <label for="volumeControl" class="w-1/5">Volume Control:</label>
           <input
             type="range"
             id="volumeControl"
@@ -62,7 +81,7 @@
             max="100"
             v-model="volume"
             @input="adjustVolume"
-            class="w-full"
+            class="w-1/2"
           />
         </div>
       </div>
@@ -70,12 +89,9 @@
   </div>
   <div class="flex items-center justify-center min-h-screen space-x-3">
     <Knob />
-    <!-- </div>
-  <div class="flex items-center justify-center min-h-screen"> -->
     <RangeFader @input="handleInput" />
   </div>
 </template>
-
 <script>
 import axios from "axios";
 import Peer from "simple-peer";
@@ -98,7 +114,9 @@ export default {
       isMicMuted: false,
       isCameraOff: false,
       audioInputDevices: [],
+      videoInputDevices: [],
       selectedAudioInput: "",
+      selectedVideoInput: "",
       volume: 100,
     };
   },
@@ -109,18 +127,18 @@ export default {
     }
 
     this.$nextTick(() => {
-      this.initializePeer();
+      this.initializePeer(true); // Initialize as the initiator
       this.setupEchoListeners();
       this.enumerateDevices();
     });
   },
   methods: {
-    initializePeer() {
+    initializePeer(initiator = false) {
       if (this.peer) {
         this.peer.destroy();
       }
 
-      this.peer = new Peer({ initiator: true, trickle: false });
+      this.peer = new Peer({ initiator: initiator, trickle: false });
 
       this.peer.on("error", (err) => {
         console.error("Peer error:", err);
@@ -131,12 +149,38 @@ export default {
         this.peer = null;
       });
 
+      this.peer.on("signal", (data) => {
+        console.log("Generated SDP offer/answer:", data);
+        axios
+          .post("/send-signal", { signal: data })
+          .then((response) => {
+            console.log("Signal sent successfully:", response.data);
+          })
+          .catch((error) => {
+            console.error("Error sending signal:", error);
+          });
+      });
+
+      this.peer.on("stream", (remoteStream) => {
+        console.log("Received remote stream:", remoteStream);
+        const remoteVideo = this.$refs.remoteVideo;
+        if (remoteVideo) {
+          remoteVideo.srcObject = remoteStream;
+        } else {
+          console.error("Remote video element not found");
+        }
+      });
+
       this.getUserMedia();
     },
     getUserMedia() {
       navigator.mediaDevices
         .getUserMedia({
-          video: true,
+          video: {
+            deviceId: this.selectedVideoInput
+              ? { exact: this.selectedVideoInput }
+              : undefined,
+          },
           audio: {
             deviceId: this.selectedAudioInput
               ? { exact: this.selectedAudioInput }
@@ -154,28 +198,6 @@ export default {
 
           if (this.peer && !this.peer.destroyed) {
             this.peer.addStream(stream);
-
-            this.peer.on("signal", (data) => {
-              console.log("Generated SDP offer:", data);
-              axios
-                .post("/send-signal", { signal: data })
-                .then((response) => {
-                  console.log("Signal sent successfully:", response.data);
-                })
-                .catch((error) => {
-                  console.error("Error sending signal:", error);
-                });
-            });
-
-            this.peer.on("stream", (remoteStream) => {
-              console.log("Received remote stream:", remoteStream);
-              const remoteVideo = this.$refs.remoteVideo;
-              if (remoteVideo) {
-                remoteVideo.srcObject = remoteStream;
-              } else {
-                console.error("Remote video element not found");
-              }
-            });
           } else {
             console.error("Peer connection is destroyed before adding stream");
           }
@@ -197,15 +219,15 @@ export default {
       });
 
       this.echo.channel("video-call").listen("VideoCallSignal", (e) => {
-        console.log("Received SDP answer:", e.signal);
+        console.log("Received SDP signal:", e.signal);
         this.connectToPeer(e.signal);
       });
     },
     connectToPeer(remoteSignal) {
       try {
-        if (this.peer && this.peer.destroyed) {
+        if (!this.peer || this.peer.destroyed) {
           console.error("Peer is destroyed, reinitializing peer");
-          this.initializePeer();
+          this.initializePeer(false); // Initialize as the responder
         }
         if (this.peer) {
           console.log("Connecting to peer with signal:", remoteSignal);
@@ -240,17 +262,23 @@ export default {
           this.audioInputDevices = devices.filter(
             (device) => device.kind === "audioinput"
           );
+          this.videoInputDevices = devices.filter(
+            (device) => device.kind === "videoinput"
+          );
           if (this.audioInputDevices.length > 0) {
             this.selectedAudioInput = this.audioInputDevices[0].deviceId;
+          }
+          if (this.videoInputDevices.length > 0) {
+            this.selectedVideoInput = this.videoInputDevices[0].deviceId;
           }
         })
         .catch((error) => {
           console.error("Error enumerating devices:", error);
         });
     },
-    changeAudioInput() {
+    changeMediaInput() {
       if (this.localStream) {
-        this.localStream.getAudioTracks().forEach((track) => {
+        this.localStream.getTracks().forEach((track) => {
           track.stop();
         });
       }
@@ -271,27 +299,4 @@ export default {
 };
 </script>
 
-<style scoped>
-.error-message {
-  @apply text-red-500 font-bold;
-}
-.video-container {
-  @apply flex space-x-4;
-}
-video {
-  @apply w-1/2 border rounded;
-}
-.controls {
-  @apply flex flex-col space-y-2;
-}
-button {
-  @apply px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-700;
-}
-select,
-input {
-  @apply px-4 py-2 border rounded;
-}
-label {
-  @apply w-1/3;
-}
-</style>
+
